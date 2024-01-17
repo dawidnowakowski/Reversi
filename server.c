@@ -8,7 +8,7 @@
 
 #define MAX_CLIENTS 50
 #define MAX_SESSIONS 25
-#define PORT 1105
+#define PORT 1101
 #define BOARD_SIZE 8
 
 typedef struct GameSession
@@ -80,9 +80,7 @@ void *socketThread(void *arg)
     int n;
 
     char client_message[2000]; // Declare client_message here
-
-    // Find the session number for this client
-    // int session = newSocket->session;
+    
     
     int player_number = newSocket->player_number;
     printf("player number: %d - Session: %d\n", player_number, newSocket->session_ptr->sessionID);
@@ -90,11 +88,11 @@ void *socketThread(void *arg)
     // Notify the first client in the session
     if (player_number == 1)
     {
-        notifyPlayer(newSocket->socket, "You are the first player, wait for the second player to connect\n.");
+        notifyPlayer(newSocket->socket, "You are the first player, wait for the second player to connect.\n");
     }
     else
     {
-        notifyPlayer(newSocket->socket, "You are the second player, wait for the first player to enter some message\n");
+        notifyPlayer(newSocket->socket, "You are the second player, wait for the first player to enter some message.\n");
     }
 
 
@@ -129,17 +127,21 @@ void *socketThread(void *arg)
     }
   
 
-    for (;;)
-    {
-
-        n = recv(newSocket->socket, client_message, sizeof(client_message), 0);
-        if (n < 1)
-        {
-            break;
-        }
-      
-        send(otherPlayerSocket, client_message, n, 0);
+    for (;;) {
+    n = recv(newSocket->socket, client_message, sizeof(client_message), 0);
+    if (n < 1) {
+        break;
     }
+
+    // Check if the received message is "exit"
+    if (strcmp(client_message, "exit") == 0) {
+        break;
+    }
+
+    // Send the received message to the other player
+    send(otherPlayerSocket, client_message, n, 0);
+}
+
 
     printf("client %d disconnected\n", newSocket->socket);
     close(newSocket->socket);
@@ -207,18 +209,18 @@ int main()
                 // printf("fp przed %d\n",sessions[session].fp_socket);
                 // printf("sp przed %d\n",sessions[session].sp_socket);
 
-                if (sessions[session].fp_socket == 0)
+                if (sessions[session].fp_socket <= 0)
                 {
                   sessions[session].fp_socket = newSocket;
                   clients[i].player_number = 1;
-                  // printf("fp po %d\n",sessions[session].fp_socket);
+                //   printf("fp po %d\n",sessions[session].fp_socket);
                 }
 
-                else if (sessions[session].sp_socket == 0)
+                else if (sessions[session].sp_socket <= 0)
                 {
                   sessions[session].sp_socket = newSocket;
                   clients[i].player_number = 2;
-                  // printf("sp po %d\n",sessions[session].sp_socket);
+                //   printf("sp po %d\n",sessions[session].sp_socket);
                   session++;
                 }
 
