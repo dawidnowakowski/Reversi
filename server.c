@@ -5,11 +5,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <ctype.h>
 
 #define MAX_CLIENTS 50
 #define MAX_SESSIONS 25
-#define PORT 1101
+#define PORT 1100
 #define BOARD_SIZE 8
+#define MAX_MESSAGE_SIZE 256
 
 typedef struct GameSession
 {
@@ -125,22 +127,36 @@ void *socketThread(void *arg)
       initializeBoard(newSocket->session_ptr);
       displayBoard(newSocket->session_ptr);
     }
-  
-
+    
+    // both players connected, the game is on
     for (;;) {
-    n = recv(newSocket->socket, client_message, sizeof(client_message), 0);
-    if (n < 1) {
-        break;
-    }
+        n = recv(newSocket->socket, client_message, sizeof(client_message), 0);
+        // check if player disconected
+        if (n < 1) {
+            break;
+        }
+        // Check if the received message is "exit"
+        if (strcmp(client_message, "exit") == 0) {
+            break;
+        }
 
-    // Check if the received message is "exit"
-    if (strcmp(client_message, "exit") == 0) {
-        break;
+        // handle moves
+        client_message[n] = '\0';
+        
+        int x, y;
+        if (sscanf(client_message, "%d %d", &x, &y) == 2 ) {
+            if (x >= 1 && x <= BOARD_SIZE && y >= 1 && y <= BOARD_SIZE){
+                printf("%d %d\n", x, y);
+                displayBoard(newSocket->session_ptr);
+                send(otherPlayerSocket, client_message, strlen(client_message), 0);
+            } else {
+                send(newSocket->socket, "Invalid numbers for positions (out of range).\n", strlen("Invalid numbers for positions (out of range).\n"), 0);
+            }
+            
+        } else {
+            send(newSocket->socket, "Invalid input format. Please use 'number number' format.\n", strlen("Invalid input format. Please use 'number number' format.\n"), 0);
+        }       
     }
-
-    // Send the received message to the other player
-    send(otherPlayerSocket, client_message, n, 0);
-}
 
 
     printf("client %d disconnected\n", newSocket->socket);
