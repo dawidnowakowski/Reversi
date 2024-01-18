@@ -9,30 +9,37 @@
 
 #define MAX_CLIENTS 50
 #define MAX_SESSIONS 25
-#define PORT 1104
+#define PORT 1100
 #define BOARD_SIZE 8
-#define MAX_MESSAGE_SIZE 256
 
+
+
+// structure containing information about the game session
+// each game session needs 2 player to start the game
 typedef struct GameSession
 {
-  int sessionID;
-  int fp_socket;
-  int sp_socket;
-  char board[BOARD_SIZE][BOARD_SIZE];
-  int board_pieces;
-  int game_end;
-  int fp_legal_moves;
-  int sp_legal_moves;
+  int sessionID; // index of the session on the sessions array
+  int fp_socket; // firsts player socket
+  int sp_socket; // seconds player socket
+  char board[BOARD_SIZE][BOARD_SIZE]; 
+  int board_pieces; // number of pieces on the board - used for checking the game end condition
+  int game_end; // variable that is used while determing if the game is supposed to end
+  int fp_legal_moves; // 1 - has legal moves, 0 - no legal moves
+  int sp_legal_moves; // 1 - has legal moves, 0 - no legal moves
 } game_session;
 
+
+// stucter containing information about client connection
 typedef struct Client
 {
-    int socket;
-    int index;
+    int socket; 
+    int index; // index on the users array
     int player_number; // 1 for the first player, 2 for the second player
-    struct GameSession *session_ptr; // Pointer to a GameSession
+    struct GameSession *session_ptr; // Pointer to a GameSession that Client is in
 } client;
 
+
+// enums for move validation
 typedef enum {
     NONE = 0,
     HORIZONTAL = 1,
@@ -41,11 +48,14 @@ typedef enum {
     DIAGONAL_RIGHT_UP_LEFT_DOWN = 8
 } MoveDirection;
 
+// arays containing clients and sessions
 struct Client clients[MAX_CLIENTS] = {0};
 struct GameSession sessions[MAX_SESSIONS] = {0};
 
 
 // reversi game
+
+// sets up starting position for reversi game and initializes other game_session variables
 void initializeBoard(game_session *session)
 {
     for (int i = 0; i < BOARD_SIZE; i++)
@@ -82,26 +92,26 @@ void displayBoard(const game_session *session)
 
 }
 
+// function that transforms the board 2d array to a string and sends it to the player on the playerSocket
 void sendBoardInfo(int playerSocket, const game_session *session) {
     char boardInfo[256];
-
     memset(boardInfo, 0, sizeof(boardInfo));
 
-    // Format the board information into a string
+    // format the board information into a string
     snprintf(boardInfo, sizeof(boardInfo), "Board Information:\n");
     for (int i = 0; i < BOARD_SIZE; i++) {
         for (int j = 0; j < BOARD_SIZE; j++) {
-            // printf("test %c\n", session->board[i][j]);
             snprintf(boardInfo + strlen(boardInfo), sizeof(boardInfo) - strlen(boardInfo), "%c ", session->board[i][j]);
         }
         snprintf(boardInfo + strlen(boardInfo), sizeof(boardInfo) - strlen(boardInfo), "\n");
     }
-
-    // Send the formatted board information to the player
-    // printf("%s\n", boardInfo);
     send(playerSocket, boardInfo, strlen(boardInfo), 0);
 }
 
+// function that returns MoveDirection (see structs at the begginig)
+// function checks if the move is valid by iterating through the table in each direction 
+//      from the passed move cooridantes. It does iterate as long as he touch the bound or until there are any enemys pieces
+// if the move is valid in the direction it uses AND on enum and temporary variable
 MoveDirection validateMove(const game_session *session, int socket, int x, int y){
     char opponent, currentPlayer;
     if(socket == session->fp_socket)
@@ -171,6 +181,7 @@ MoveDirection validateMove(const game_session *session, int socket, int x, int y
     return validDirections;
 } 
 
+// similar to the previous one but this one is changing the board
 void executeMove(game_session *session, int x, int y, MoveDirection direction, int socket) {
     char opponent, currentPlayer;
     if(socket == session->fp_socket)
@@ -274,24 +285,22 @@ void checkEndGameConditions(game_session *session, int socket){
 void *socketThread(void *arg)
 {
     printf("New thread\n");
-    struct Client* newSocket = (struct Client*)arg;
+    struct Client* newSocket = (struct Client*)arg; // pointer to an address passed as argument which is element of clients arrays - which is Client struct
 
     int n;
-
-    char client_message[2000]; // Declare client_message here
-    
+    char client_message[2000]; // declare client_message here
     
     int player_number = newSocket->player_number;
     printf("player number: %d - Session: %d\n", player_number, newSocket->session_ptr->sessionID);
 
-    // Notify the first client in the session
+    // notify the first client in the session
     if (player_number == 1)
     {
         send(newSocket->socket, "You are the first player (X), wait for the second player to connect.\n", strlen("You are the first player (X), wait for the second player to connect.\n"), 0);
     }
-    else
+    else // notify the second player in the session
     {
-        send(newSocket->socket, "You are the second player (O), wait for the first player to enter some message.\n", strlen("You are the second player (O), wait for the first player to enter some message.\n"), 0);
+        send(newSocket->socket, "You are the second player (O), wait for the first player to make a move.\n", strlen("You are the second player (O), wait for the first player to make a move.\n"), 0);
     }
 
 
@@ -303,27 +312,27 @@ void *socketThread(void *arg)
     }
 
     
-    // make p1 wait until p2 connects and check if it didn't disconnect during waittime
+    // make p1 wait until p2 connects and check if p1 didn't disconnect during waittime
     if (player_number == 1){ 
-      while (newSocket->session_ptr->sp_socket <= 0){ 
-        n = recv(newSocket->socket, client_message, sizeof(client_message), MSG_DONTWAIT);
-        if (n == 0) 
-        {
-          printf("client %d disconnected\n", newSocket->socket);
-          close(newSocket->socket);
-          // mark the client as disconnected
-          
-          sessions[newSocket->session_ptr->sessionID].fp_socket = -1;
-          clients[newSocket->index].socket = -1;
+        while (newSocket->session_ptr->sp_socket <= 0){ 
+            n = recv(newSocket->socket, client_message, sizeof(client_message), MSG_DONTWAIT);
+            if (n == 0) 
+            {
+              printf("client %d disconnected\n", newSocket->socket);
+              close(newSocket->socket);
+              // mark the client as disconnected
 
-          pthread_exit(NULL);
+              sessions[newSocket->session_ptr->sessionID].fp_socket = -1;
+              clients[newSocket->index].socket = -1;
+
+              pthread_exit(NULL);
+            }
         }
-    }
+
+        // start the game after the 2nd player has connected
         otherPlayerSocket = newSocket->session_ptr->sp_socket;
         initializeBoard(newSocket->session_ptr);
         sendBoardInfo(newSocket->socket, newSocket->session_ptr);
-      
-        displayBoard(newSocket->session_ptr);
     }
     
     // both players connected, the game is on
@@ -333,42 +342,44 @@ void *socketThread(void *arg)
         if (n < 1) {
             break;
         }
-        // Check if the received message is "exit"
+        // check if the received message is "exit"
         if (strcmp(client_message, "exit") == 0) {
             break;
         }
 
-        // handle moves
         client_message[n] = '\0';
 
         int x, y;
         char col;
         MoveDirection is_valid = 0;
 
-        if (sscanf(client_message, "%c%d", &col, &y) == 2) {
+        // handle move input
+        if (sscanf(client_message, "%c%d", &col, &y) == 2) { // CHECK IF VALID FORMAT OF INPUT
             x = toupper(col) - 'A';
             
-            if (x >= 0 && x < BOARD_SIZE && y >= 1 && y <= BOARD_SIZE) {
+            if (x >= 0 && x < BOARD_SIZE && y >= 1 && y <= BOARD_SIZE) { // CHECK IF PASSED COORIDANTES ARE IN RANGE
                 printf("%d %d\n", x, y);
 
-                if (newSocket->session_ptr->board[y-1][x] == '.') { // CHECK IF POSITION EMPTY
-                    is_valid = validateMove(newSocket->session_ptr, newSocket->socket, y-1, x); 
+                if (newSocket->session_ptr->board[y-1][x] == '.') { // CHECK IF PASSED POSITION US EMPTY
+
+                    is_valid = validateMove(newSocket->session_ptr, newSocket->socket, y-1, x); //validate move
                     printf("%d\n", is_valid);
 
-                    if (is_valid > 0) // VALIDATE MOVE
-                    { // EXECUTE MOVE AND SEND NEW BOARD TO OTHER PLAYER
+                    if (is_valid > 0) // EXECUTE MOVE AND CHECK IF THE GAME HAS ENDED
+                    { 
                         executeMove(newSocket->session_ptr, y-1, x, is_valid, newSocket->socket);
                         checkEndGameConditions(newSocket->session_ptr, newSocket->socket);
                         
                         if (newSocket->session_ptr->game_end == 1) break; // END GAME
                         else{ // IF GAME IS STILL ON THEN CHECK IF ANY PLAYER HAS NO MORE LEGAL MOVES AND LET THE OTHER PLAY UNTIL BOTH HAVE 0 LEGAL MOVES
-                            if (newSocket->session_ptr->fp_socket == newSocket->socket)
+                            // if (newSocket->session_ptr->fp_socket == newSocket->socket)
+                            if (newSocket->player_number == 1)
                             {
                                 if (newSocket->session_ptr->sp_legal_moves == 1)
                                 {
-                                    sendBoardInfo(otherPlayerSocket, newSocket->session_ptr);
+                                    sendBoardInfo(otherPlayerSocket, newSocket->session_ptr); // IF OTHER PLAYER HAS MOVES LET HIM PLAY
                                 } else{
-                                    sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+                                    sendBoardInfo(newSocket->socket, newSocket->session_ptr); // IF NO THEN LET THE PLAYER MOVE AGAIN
                                 }
                             } else{
                                 if (newSocket->session_ptr->fp_legal_moves == 1)
@@ -398,11 +409,7 @@ void *socketThread(void *arg)
             sendBoardInfo(newSocket->socket, newSocket->session_ptr);
         }  
         
-        
-        
     }
-
-    
 
     printf("client %d disconnected\n", newSocket->socket);
     close(newSocket->socket);
@@ -437,7 +444,7 @@ void *socketThread(void *arg)
         }
         
     } else{
-        send(newSocket->socket, "The oponent has left the game, you win.\n", strlen("The oponent has left the game, you win.\n"), 0);
+        send(otherPlayerSocket, "The oponent has left the game, you win.\n", strlen("The oponent has left the game, you win.\n"), 0);
     }
     pthread_exit(NULL);
 }
@@ -470,9 +477,9 @@ int main()
 
     pthread_t thread_id;
 
-    int session = 0;
+    int session = 0; // session counter
     
-    int i = 0;
+    int i = 0; // user counter
     while (1)
     {
         addr_size = sizeof serverStorage;
@@ -480,7 +487,7 @@ int main()
 
         if (i < MAX_CLIENTS)
         {
-            if (clients[i].socket <= 0)
+            if (clients[i].socket <= 0) // if socket not taken
             {
                 clients[i].socket = newSocket;
                 clients[i].index = i;
@@ -488,19 +495,19 @@ int main()
                 if (pthread_create(&thread_id, NULL, socketThread, &clients[i]) != 0)
                     printf("Failed to create thread\n");
 
-                clients[i].session_ptr = &sessions[session];
+                clients[i].session_ptr = &sessions[session]; // connect player with session
                 sessions[session].sessionID = session;
 
-                if (sessions[session].fp_socket <= 0)
+                if (sessions[session].fp_socket <= 0) // if the first player hasn't joined yet then assign currents player socket to fp_socket
                 {
                   sessions[session].fp_socket = newSocket;
                   clients[i].player_number = 1;
                 }
-                else if (sessions[session].sp_socket <= 0)
+                else if (sessions[session].sp_socket <= 0) // if the first player has joined then check if the second slot is empty
                 {
-                  sessions[session].sp_socket = newSocket;
+                  sessions[session].sp_socket = newSocket; // attack socket to sp_socket
                   clients[i].player_number = 2;
-                  session++;
+                  session++; // close the session for other players
                 }
 
 

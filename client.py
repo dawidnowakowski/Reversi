@@ -1,7 +1,7 @@
 import socket
 
 HOST = "127.0.0.1"
-PORT = 1104
+PORT = 1100
 
 def parse_board_info(message):
     # Split the message into lines
@@ -40,8 +40,9 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
 
     while GAME_STATUS:
+        
         data = s.recv(1024).decode()
-
+        # print(data)
         if 'left the game' in data: # p2 disconnected
             print(data)
             break
