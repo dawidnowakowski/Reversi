@@ -416,7 +416,26 @@ void *socketThread(void *arg)
     clients[newSocket->index].socket = -1;
     
     if (newSocket->session_ptr->game_end == 1){
-        send(newSocket->socket, "The game has ended. Winner: \n", strlen("he game has ended. Winner: "), 0);
+        //count pieces
+        int xs = 0;
+        int os = 0;
+        for (int i = 0; i < BOARD_SIZE; i++){
+            for (int j = 0; j < BOARD_SIZE; j++){
+                if (newSocket->session_ptr->board[i][j] == 'X') xs++;
+                if (newSocket->session_ptr->board[i][j] == 'O') os++;
+            }
+        }
+        if (xs > os){
+            send(newSocket->socket, "The game has ended. Winner: Player 1 (X)\n", strlen("The game has ended. Winner: Player 1 (X)\n"), 0);
+            send(otherPlayerSocket, "The game has ended. Winner: Player 1 (X)\n", strlen("The game has ended. Winner: Player 1 (X)\n"), 0);
+        } else if (xs == os){
+            send(newSocket->socket, "The game has ended. There was a tie.\n", strlen("The game has ended. There was a tie.\n"), 0);
+            send(otherPlayerSocket, "The game has ended. There was a tie.\n", strlen("The game has ended. There was a tie.\n"), 0);
+        } else{
+            send(newSocket->socket, "The game has ended. Winner: Player 2 (X)\n", strlen("The game has ended. Winner: Player 2 (X)\n"), 0);
+            send(otherPlayerSocket, "The game has ended. Winner: Player 2 (X)\n", strlen("The game has ended. Winner: Player 2 (X)\n"), 0);
+        }
+        
     } else{
         send(newSocket->socket, "The oponent has left the game, you win.\n", strlen("The oponent has left the game, you win.\n"), 0);
     }
