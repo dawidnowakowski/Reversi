@@ -9,7 +9,7 @@
 
 #define MAX_CLIENTS 50
 #define MAX_SESSIONS 25
-#define PORT 1100
+#define PORT 1103
 #define BOARD_SIZE 8
 #define MAX_MESSAGE_SIZE 256
 
@@ -28,6 +28,14 @@ typedef struct Client
     int player_number; // 1 for the first player, 2 for the second player
     struct GameSession *session_ptr; // Pointer to a GameSession
 } client;
+
+typedef enum {
+    NONE = 0,
+    HORIZONTAL = 1,
+    VERTICAL = 2,
+    DIAGONAL_LEFT_UP_RIGHT_DOWN = 4,
+    DIAGONAL_RIGHT_UP_LEFT_DOWN = 8
+} MoveDirection;
 
 struct Client clients[MAX_CLIENTS] = {0};
 struct GameSession sessions[MAX_SESSIONS] = {0};
@@ -53,19 +61,164 @@ void initializeBoard(game_session *session)
 
 void displayBoard(const game_session *session)
 {
-    printf("  0 1 2 3 4 5 6 7\n");
+    printf("  A B C D E F G H\n");
     for (int i = 0; i < BOARD_SIZE; i++)
     {
-        printf("%d ", i);
+        printf("%d ", i + 1);
         for (int j = 0; j < BOARD_SIZE; j++)
         {
             printf("%c ", session->board[i][j]);
         }
         printf("\n");
     }
-    printf("\n");
+
 }
 
+void sendBoardInfo(int playerSocket, const game_session *session) {
+    char boardInfo[256];
+
+    // Reset the boardInfo string
+    memset(boardInfo, 0, sizeof(boardInfo));
+
+    // Format the board information into a string
+    snprintf(boardInfo, sizeof(boardInfo), "Board Information:\n");
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            // printf("test %c\n", session->board[i][j]);
+            snprintf(boardInfo + strlen(boardInfo), sizeof(boardInfo) - strlen(boardInfo), "%c ", session->board[i][j]);
+        }
+        snprintf(boardInfo + strlen(boardInfo), sizeof(boardInfo) - strlen(boardInfo), "\n");
+    }
+
+    // Send the formatted board information to the player
+    // printf("%s\n", boardInfo);
+    send(playerSocket, boardInfo, strlen(boardInfo), 0);
+}
+
+MoveDirection validateMove(const game_session *session, int socket, int x, int y){
+    char opponent, currentPlayer;
+    if(socket == session->fp_socket)
+    {
+        currentPlayer = 'X';
+        opponent = 'O';
+    } else{
+        currentPlayer = 'O';
+        opponent = 'X';
+    }
+
+    MoveDirection validDirections = NONE;
+    int i = x, j;
+    // Check horizontally
+    for (j = y - 1; j >= 0 && session->board[i][j] == opponent; --j);
+    if (j >= 0 && j != y - 1 && session->board[i][j] == currentPlayer)
+        validDirections |= HORIZONTAL;
+
+    for (j = y + 1; j < BOARD_SIZE && session->board[i][j] == opponent; ++j);
+    if (j < BOARD_SIZE && j != y + 1 && session->board[i][j] == currentPlayer)
+        validDirections |= HORIZONTAL;
+
+    // Check vertically
+    i = x - 1;
+    for (j = y; i >= 0 && session->board[i][j] == opponent; --i);
+    if (i >= 0 && i != x - 1 && session->board[i][j] == currentPlayer)
+        validDirections |= VERTICAL;
+
+    for (i = x + 1; i < BOARD_SIZE && session->board[i][j] == opponent; ++i);
+    if (i < BOARD_SIZE && i != x + 1 && session->board[i][j] == currentPlayer)
+        validDirections |= VERTICAL;
+
+    // Check diagonally (left-up to right-down)
+    i = x - 1, j = y - 1;
+    while (i >= 0 && j >= 0 && session->board[i][j] == opponent) {
+        --i;
+        --j;
+    }
+    if (i >= 0 && j >= 0 && i != x - 1 && j != y - 1 && session->board[i][j] == currentPlayer)
+        validDirections |= DIAGONAL_LEFT_UP_RIGHT_DOWN;
+
+    i = x + 1, j = y + 1;
+    while (i < BOARD_SIZE && j < BOARD_SIZE && session->board[i][j] == opponent) {
+        ++i;
+        ++j;
+    }
+    if (i < BOARD_SIZE && j < BOARD_SIZE && i != x + 1 && j != y + 1 && session->board[i][j] == currentPlayer)
+        validDirections |= DIAGONAL_LEFT_UP_RIGHT_DOWN;
+
+    // Check diagonally (right-up to left-down)
+    i = x - 1, j = y + 1;
+    while (i >= 0 && j < BOARD_SIZE && session->board[i][j] == opponent) {
+        --i;
+        ++j;
+    }
+    if (i >= 0 && j < BOARD_SIZE && i != x - 1 && j != y + 1 && session->board[i][j] == currentPlayer)
+        validDirections |= DIAGONAL_RIGHT_UP_LEFT_DOWN;
+
+    i = x + 1, j = y - 1;
+    while (i < BOARD_SIZE && j >= 0 && session->board[i][j] == opponent) {
+        ++i;
+        --j;
+    }
+    if (i < BOARD_SIZE && j >= 0 && i != x + 1 && j != y - 1 && session->board[i][j] == currentPlayer)
+        validDirections |= DIAGONAL_RIGHT_UP_LEFT_DOWN;
+
+    return validDirections;
+} 
+
+void executeMove(game_session *session, int x, int y, MoveDirection direction, int socket) {
+    char opponent, currentPlayer;
+    if(socket == session->fp_socket)
+    {
+        currentPlayer = 'X';
+        opponent = 'O';
+    } else{
+        currentPlayer = 'O';
+        opponent = 'X';
+    }
+
+    // Place the current player's piece in the specified position
+    session->board[x][y] = currentPlayer;
+
+    // Update the board based on the direction
+    if (direction & HORIZONTAL) {
+        // Update horizontally
+        for (int j = y - 1; j >= 0 && session->board[x][j] == opponent; --j) {
+            session->board[x][j] = currentPlayer;
+        }
+        for (int j = y + 1; j < BOARD_SIZE && session->board[x][j] == opponent; ++j) {
+            session->board[x][j] = currentPlayer;
+        }
+    }
+
+    if (direction & VERTICAL) {
+        // Update vertically
+        for (int i = x - 1; i >= 0 && session->board[i][y] == opponent; --i) {
+            session->board[i][y] = currentPlayer;
+        }
+        for (int i = x + 1; i < BOARD_SIZE && session->board[i][y] == opponent; ++i) {
+            session->board[i][y] = currentPlayer;
+        }
+    }
+
+    if (direction & DIAGONAL_LEFT_UP_RIGHT_DOWN) {
+        // Update diagonally (left-up to right-down)
+        for (int i = x - 1, j = y - 1; i >= 0 && j >= 0 && session->board[i][j] == opponent; --i, --j) {
+            session->board[i][j] = currentPlayer;
+        }
+        for (int i = x + 1, j = y + 1; i < BOARD_SIZE && j < BOARD_SIZE && session->board[i][j] == opponent; ++i, ++j) {
+            session->board[i][j] = currentPlayer;
+        }
+    }
+
+    if (direction & DIAGONAL_RIGHT_UP_LEFT_DOWN) {
+        // Update diagonally (right-up to left-down)
+        for (int i = x - 1, j = y + 1; i >= 0 && j < BOARD_SIZE && session->board[i][j] == opponent; --i, ++j) {
+            session->board[i][j] = currentPlayer;
+        }
+        for (int i = x + 1, j = y - 1; i < BOARD_SIZE && j >= 0 && session->board[i][j] == opponent; ++i, --j) {
+            session->board[i][j] = currentPlayer;
+        }
+    }
+}
 
 
 // client-server communication
@@ -90,11 +243,11 @@ void *socketThread(void *arg)
     // Notify the first client in the session
     if (player_number == 1)
     {
-        notifyPlayer(newSocket->socket, "You are the first player, wait for the second player to connect.\n");
+        notifyPlayer(newSocket->socket, "You are the first player (X), wait for the second player to connect.\n");
     }
     else
     {
-        notifyPlayer(newSocket->socket, "You are the second player, wait for the first player to enter some message.\n");
+        notifyPlayer(newSocket->socket, "You are the second player (O), wait for the first player to enter some message.\n");
     }
 
 
@@ -121,11 +274,13 @@ void *socketThread(void *arg)
 
           pthread_exit(NULL);
         }
-      }
-      otherPlayerSocket = newSocket->session_ptr->sp_socket;
-      notifyPlayer(newSocket->socket, "The second player joined the game session. You can send a message now.\n");
-      initializeBoard(newSocket->session_ptr);
-      displayBoard(newSocket->session_ptr);
+    }
+        otherPlayerSocket = newSocket->session_ptr->sp_socket;
+    //   notifyPlayer(newSocket->socket, "The second player joined the game session. You can send a message now.\n");
+        initializeBoard(newSocket->session_ptr);
+        sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+      
+        displayBoard(newSocket->session_ptr);
     }
     
     // both players connected, the game is on
@@ -142,20 +297,45 @@ void *socketThread(void *arg)
 
         // handle moves
         client_message[n] = '\0';
-        
+
         int x, y;
-        if (sscanf(client_message, "%d %d", &x, &y) == 2 ) {
-            if (x >= 1 && x <= BOARD_SIZE && y >= 1 && y <= BOARD_SIZE){
-                printf("%d %d\n", x, y);
-                displayBoard(newSocket->session_ptr);
-                send(otherPlayerSocket, client_message, strlen(client_message), 0);
-            } else {
-                send(newSocket->socket, "Invalid numbers for positions (out of range).\n", strlen("Invalid numbers for positions (out of range).\n"), 0);
-            }
+        char col;
+        MoveDirection is_valid = 0;
+
+        if (sscanf(client_message, "%c%d", &col, &y) == 2) {
+            x = toupper(col) - 'A';
             
-        } else {
-            send(newSocket->socket, "Invalid input format. Please use 'number number' format.\n", strlen("Invalid input format. Please use 'number number' format.\n"), 0);
-        }       
+            if (x >= 0 && x < BOARD_SIZE && y >= 1 && y <= BOARD_SIZE) {
+                printf("%d %d\n", x, y);
+                if (newSocket->session_ptr->board[y-1][x] == '.') { // CHECK IF POSITION EMPTY
+                    is_valid = validateMove(newSocket->session_ptr, newSocket->socket, y-1, x); // VALIDATE MOVE
+                    printf("%d\n", is_valid);
+                    if (is_valid > 0)
+                    { // EXECUTE MOVE AND SEND NEW BOARD TO OTHER PLAYER
+                        executeMove(newSocket->session_ptr, y-1, x, is_valid, newSocket->socket);
+                        sendBoardInfo(otherPlayerSocket, newSocket->session_ptr);
+                    } else{ // SEND INFO ABOUT NOT VALID MOVE AND REPEAT BOARD INFO
+                        send(newSocket->socket, "Invalid move. You can't put a piece in this position.\n", strlen("Invalid move. You can't put a piece in this position.\n"), 0);
+                        sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+                    }
+                } else { // POSITION NOT EMPTY
+                    send(newSocket->socket, "The selected position is not empty.\n", strlen("The selected position is not empty.\n"), 0);
+                    sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+                    // is_valid = 0;
+                }            
+            } else { // OUT OF RANGE
+                send(newSocket->socket, "Invalid position (out of range).\n", strlen("Invalid position (out of range).\n"), 0);
+                sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+                // is_valid = 0;
+            }
+        } else { // INVALID FORMAT 
+            send(newSocket->socket, "Invalid input format. Please use 'Char Number' format.\n", strlen("Invalid input format. Please use 'Char Number' format.\n"), 0);
+            sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+            // is_valid = 0;
+        }  
+        
+        
+        
     }
 
 
