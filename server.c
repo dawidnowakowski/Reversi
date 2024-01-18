@@ -9,7 +9,7 @@
 
 #define MAX_CLIENTS 50
 #define MAX_SESSIONS 25
-#define PORT 1103
+#define PORT 1104
 #define BOARD_SIZE 8
 #define MAX_MESSAGE_SIZE 256
 
@@ -19,6 +19,10 @@ typedef struct GameSession
   int fp_socket;
   int sp_socket;
   char board[BOARD_SIZE][BOARD_SIZE];
+  int board_pieces;
+  int game_end;
+  int fp_legal_moves;
+  int sp_legal_moves;
 } game_session;
 
 typedef struct Client
@@ -57,6 +61,10 @@ void initializeBoard(game_session *session)
     session->board[3][4] = 'O';
     session->board[4][3] = 'O';
     session->board[4][4] = 'X';
+    session->board_pieces = 4;
+    session->game_end = 0;
+    session->sp_legal_moves = 1;
+    session->fp_legal_moves = 1;
 }
 
 void displayBoard(const game_session *session)
@@ -77,7 +85,6 @@ void displayBoard(const game_session *session)
 void sendBoardInfo(int playerSocket, const game_session *session) {
     char boardInfo[256];
 
-    // Reset the boardInfo string
     memset(boardInfo, 0, sizeof(boardInfo));
 
     // Format the board information into a string
@@ -175,12 +182,9 @@ void executeMove(game_session *session, int x, int y, MoveDirection direction, i
         opponent = 'X';
     }
 
-    // Place the current player's piece in the specified position
     session->board[x][y] = currentPlayer;
 
-    // Update the board based on the direction
     if (direction & HORIZONTAL) {
-        // Update horizontally
         for (int j = y - 1; j >= 0 && session->board[x][j] == opponent; --j) {
             session->board[x][j] = currentPlayer;
         }
@@ -190,7 +194,6 @@ void executeMove(game_session *session, int x, int y, MoveDirection direction, i
     }
 
     if (direction & VERTICAL) {
-        // Update vertically
         for (int i = x - 1; i >= 0 && session->board[i][y] == opponent; --i) {
             session->board[i][y] = currentPlayer;
         }
@@ -200,7 +203,6 @@ void executeMove(game_session *session, int x, int y, MoveDirection direction, i
     }
 
     if (direction & DIAGONAL_LEFT_UP_RIGHT_DOWN) {
-        // Update diagonally (left-up to right-down)
         for (int i = x - 1, j = y - 1; i >= 0 && j >= 0 && session->board[i][j] == opponent; --i, --j) {
             session->board[i][j] = currentPlayer;
         }
@@ -210,7 +212,6 @@ void executeMove(game_session *session, int x, int y, MoveDirection direction, i
     }
 
     if (direction & DIAGONAL_RIGHT_UP_LEFT_DOWN) {
-        // Update diagonally (right-up to left-down)
         for (int i = x - 1, j = y + 1; i >= 0 && j < BOARD_SIZE && session->board[i][j] == opponent; --i, ++j) {
             session->board[i][j] = currentPlayer;
         }
@@ -218,14 +219,57 @@ void executeMove(game_session *session, int x, int y, MoveDirection direction, i
             session->board[i][j] = currentPlayer;
         }
     }
+    session->board_pieces++;
 }
 
+void checkEndGameConditions(game_session *session, int socket){
+    int opponent, currentPlayer; // assign sockets for players in session
+    if(socket == session->fp_socket)
+    {
+        currentPlayer = session->fp_socket;
+        opponent = session->sp_socket;
+    } else{
+        currentPlayer = session->sp_socket;
+        opponent = session->fp_socket;
+    }
 
+    if (session->board_pieces == BOARD_SIZE*BOARD_SIZE) // check if board is full
+    {
+        session->game_end = 1;
+    } else{ 
+        session->game_end = 1;
+        // check if oponent has any legal moves left
+        for (int i = 0; i<BOARD_SIZE; i++){
+            for (int j = 0; j<BOARD_SIZE; i++){
+                if (validateMove(session, opponent, i, j) > 0);
+                    session->game_end = 0;
+                    
+                    break;
+            }
+        }
+
+        // if oponent doesnt have any legal moves left then check if current player (who made a move) has any legal moves
+        if (session->game_end == 1)
+        {
+            if(socket == session->fp_socket) // mark legal_moves flag
+            {
+                session->sp_legal_moves = 0;
+            } else{
+                session->fp_legal_moves = 0;
+            }
+            for (int i = 0; i<BOARD_SIZE; i++){
+                for (int j = 0; j<BOARD_SIZE; i++){
+                    if (validateMove(session, currentPlayer, i, j) > 0);
+                        session->game_end = 0;
+                        break;
+                }
+            }
+        }
+    }
+
+    
+}
 // client-server communication
-void notifyPlayer(int playerSocket, const char *message)
-{
-    send(playerSocket, message, strlen(message), 0);
-}
 
 void *socketThread(void *arg)
 {
@@ -243,11 +287,11 @@ void *socketThread(void *arg)
     // Notify the first client in the session
     if (player_number == 1)
     {
-        notifyPlayer(newSocket->socket, "You are the first player (X), wait for the second player to connect.\n");
+        send(newSocket->socket, "You are the first player (X), wait for the second player to connect.\n", strlen("You are the first player (X), wait for the second player to connect.\n"), 0);
     }
     else
     {
-        notifyPlayer(newSocket->socket, "You are the second player (O), wait for the first player to enter some message.\n");
+        send(newSocket->socket, "You are the second player (O), wait for the first player to enter some message.\n", strlen("You are the second player (O), wait for the first player to enter some message.\n"), 0);
     }
 
 
@@ -276,7 +320,6 @@ void *socketThread(void *arg)
         }
     }
         otherPlayerSocket = newSocket->session_ptr->sp_socket;
-    //   notifyPlayer(newSocket->socket, "The second player joined the game session. You can send a message now.\n");
         initializeBoard(newSocket->session_ptr);
         sendBoardInfo(newSocket->socket, newSocket->session_ptr);
       
@@ -307,13 +350,37 @@ void *socketThread(void *arg)
             
             if (x >= 0 && x < BOARD_SIZE && y >= 1 && y <= BOARD_SIZE) {
                 printf("%d %d\n", x, y);
+
                 if (newSocket->session_ptr->board[y-1][x] == '.') { // CHECK IF POSITION EMPTY
-                    is_valid = validateMove(newSocket->session_ptr, newSocket->socket, y-1, x); // VALIDATE MOVE
+                    is_valid = validateMove(newSocket->session_ptr, newSocket->socket, y-1, x); 
                     printf("%d\n", is_valid);
-                    if (is_valid > 0)
+
+                    if (is_valid > 0) // VALIDATE MOVE
                     { // EXECUTE MOVE AND SEND NEW BOARD TO OTHER PLAYER
                         executeMove(newSocket->session_ptr, y-1, x, is_valid, newSocket->socket);
-                        sendBoardInfo(otherPlayerSocket, newSocket->session_ptr);
+                        checkEndGameConditions(newSocket->session_ptr, newSocket->socket);
+                        
+                        if (newSocket->session_ptr->game_end == 1) break; // END GAME
+                        else{ // IF GAME IS STILL ON THEN CHECK IF ANY PLAYER HAS NO MORE LEGAL MOVES AND LET THE OTHER PLAY UNTIL BOTH HAVE 0 LEGAL MOVES
+                            if (newSocket->session_ptr->fp_socket == newSocket->socket)
+                            {
+                                if (newSocket->session_ptr->sp_legal_moves == 1)
+                                {
+                                    sendBoardInfo(otherPlayerSocket, newSocket->session_ptr);
+                                } else{
+                                    sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+                                }
+                            } else{
+                                if (newSocket->session_ptr->fp_legal_moves == 1)
+                                {
+                                    sendBoardInfo(otherPlayerSocket, newSocket->session_ptr);
+                                } else{
+                                    sendBoardInfo(newSocket->socket, newSocket->session_ptr);
+                                }
+                            }
+                        }
+
+                        
                     } else{ // SEND INFO ABOUT NOT VALID MOVE AND REPEAT BOARD INFO
                         send(newSocket->socket, "Invalid move. You can't put a piece in this position.\n", strlen("Invalid move. You can't put a piece in this position.\n"), 0);
                         sendBoardInfo(newSocket->socket, newSocket->session_ptr);
@@ -321,23 +388,21 @@ void *socketThread(void *arg)
                 } else { // POSITION NOT EMPTY
                     send(newSocket->socket, "The selected position is not empty.\n", strlen("The selected position is not empty.\n"), 0);
                     sendBoardInfo(newSocket->socket, newSocket->session_ptr);
-                    // is_valid = 0;
                 }            
             } else { // OUT OF RANGE
                 send(newSocket->socket, "Invalid position (out of range).\n", strlen("Invalid position (out of range).\n"), 0);
                 sendBoardInfo(newSocket->socket, newSocket->session_ptr);
-                // is_valid = 0;
             }
         } else { // INVALID FORMAT 
             send(newSocket->socket, "Invalid input format. Please use 'Char Number' format.\n", strlen("Invalid input format. Please use 'Char Number' format.\n"), 0);
             sendBoardInfo(newSocket->socket, newSocket->session_ptr);
-            // is_valid = 0;
         }  
         
         
         
     }
 
+    
 
     printf("client %d disconnected\n", newSocket->socket);
     close(newSocket->socket);
@@ -349,7 +414,12 @@ void *socketThread(void *arg)
       sessions[newSocket->session_ptr->sessionID].sp_socket = -1;
     }
     clients[newSocket->index].socket = -1;
-    notifyPlayer(otherPlayerSocket, "The oponent has left the game, you win.\n");
+    
+    if (newSocket->session_ptr->game_end == 1){
+        send(newSocket->socket, "The game has ended. Winner: \n", strlen("he game has ended. Winner: "), 0);
+    } else{
+        send(newSocket->socket, "The oponent has left the game, you win.\n", strlen("The oponent has left the game, you win.\n"), 0);
+    }
     pthread_exit(NULL);
 }
 
@@ -402,21 +472,15 @@ int main()
                 clients[i].session_ptr = &sessions[session];
                 sessions[session].sessionID = session;
 
-                // printf("fp przed %d\n",sessions[session].fp_socket);
-                // printf("sp przed %d\n",sessions[session].sp_socket);
-
                 if (sessions[session].fp_socket <= 0)
                 {
                   sessions[session].fp_socket = newSocket;
                   clients[i].player_number = 1;
-                //   printf("fp po %d\n",sessions[session].fp_socket);
                 }
-
                 else if (sessions[session].sp_socket <= 0)
                 {
                   sessions[session].sp_socket = newSocket;
                   clients[i].player_number = 2;
-                //   printf("sp po %d\n",sessions[session].sp_socket);
                   session++;
                 }
 

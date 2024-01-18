@@ -1,7 +1,7 @@
 import socket
 
 HOST = "127.0.0.1"
-PORT = 1103
+PORT = 1104
 
 def parse_board_info(message):
     # Split the message into lines
@@ -61,6 +61,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         if msg == "exit":
             break
         s.sendall(bytes(msg, "utf-8"))
+        print("Wait for oponents move")
         
 
         
